@@ -1,4 +1,13 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  unlinkSync,
+} from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,7 +60,10 @@ for (const packageName of [...packageNames].sort()) {
   if (packageName === 'rsshub') continue;
   const source = join(sourceModules, packageName);
   if (!existsSync(source)) throw new Error(`traced package is missing: ${packageName}`);
-  cpSync(source, join(outputRoot, 'node_modules', packageName), { recursive: true });
+  cpSync(source, join(outputRoot, 'node_modules', packageName), {
+    recursive: true,
+    verbatimSymlinks: true,
+  });
 }
 
 const sourceRsshub = join(sourceModules, 'rsshub');
@@ -65,6 +77,26 @@ for (const source of rsshubFiles) {
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(source, destination);
 }
+
+function removeDanglingSymlinks(directory) {
+  for (const name of readdirSync(directory)) {
+    const path = join(directory, name);
+    const metadata = lstatSync(path);
+    if (metadata.isSymbolicLink()) {
+      try {
+        const resolved = realpathSync(path);
+        const local = relative(outputRoot, resolved);
+        if (local === '..' || local.startsWith(`..${sep}`)) unlinkSync(path);
+      } catch {
+        unlinkSync(path);
+      }
+    } else if (metadata.isDirectory()) {
+      removeDanglingSymlinks(path);
+    }
+  }
+}
+
+removeDanglingSymlinks(outputRoot);
 
 process.stdout.write(JSON.stringify({
   packages: packageNames.size,

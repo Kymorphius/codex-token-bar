@@ -11,6 +11,10 @@ for await (const chunk of process.stdin) input += chunk;
 
 try {
   const credentials = JSON.parse(input);
+  process.env.LOGGER_LEVEL = 'error';
+  process.env.NO_LOGFILES = 'true';
+  process.env.CACHE_TYPE = 'memory';
+  process.env.REQUEST_TIMEOUT = '15000';
   const rsshub = await import(pathToFileURL(modulePath).href);
   await rsshub.init({
     TWITTER_AUTH_TOKEN: credentials.authToken,

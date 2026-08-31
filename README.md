@@ -84,7 +84,7 @@ Windows 内置 X 页面默认跟随 Windows 显示语言，也可以在窗口顶
 
 ## macOS 安装并启动
 
-需要 macOS 13 或更新版本，并已安装且登录 Codex/ChatGPT 桌面应用。
+需要 macOS 13 或更新版本，并已安装且登录 Codex/ChatGPT 桌面应用。macOS 版与 Windows 版一样自带 Tibo 动态所需的 Node.js 和精简 RSSHub，用户不需要另外安装 Node/npm，也不会在首次使用时联网安装运行组件。
 
 1. 从 [GitHub Releases](https://github.com/Kymorphius/codex-token-bar/releases/latest) 下载最新的 `.dmg`。
 2. 双击打开 DMG。
@@ -104,6 +104,12 @@ Windows 内置 X 页面默认跟随 Windows 显示语言，也可以在窗口顶
 ```bash
 ./scripts/build_app.sh
 open "dist/Codex Token Bar.app"
+```
+
+正式构建默认把当前架构的 Node.js 与精简 RSSHub 一并放入 App，因此开发机需要 Node.js/npm。只调试不使用 Tibo RSS 功能时，可以跳过内置组件以缩短构建时间：
+
+```bash
+./scripts/build_app.sh debug --skip-bundled-rsshub
 ```
 
 生成带拖拽安装界面的 DMG：

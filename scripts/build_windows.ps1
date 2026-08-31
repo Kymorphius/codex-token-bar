@@ -48,7 +48,7 @@ if (-not $SkipBundledRssHub) {
   Copy-Item -LiteralPath (Join-Path $fullRuntimeDirectory "package-lock.json") -Destination $bundleDirectory
   Copy-Item -LiteralPath $node.Source -Destination (Join-Path $bundleDirectory "node.exe")
   Copy-Item -LiteralPath $runnerPath -Destination $bundleDirectory
-  Set-Content -LiteralPath (Join-Path $bundleDirectory ".codex-tibo-slim-version") -Value "1.0.0-master.8aeb46b/slim-v1"
+  Set-Content -LiteralPath (Join-Path $bundleDirectory ".codex-tibo-slim-version") -Value "1.0.0-master.8aeb46b/slim-v3"
   New-Item -ItemType Directory -Path $generatedDirectory -Force | Out-Null
   Remove-Item -LiteralPath $bundleArchive -Force -ErrorAction SilentlyContinue
   Add-Type -AssemblyName System.IO.Compression.FileSystem

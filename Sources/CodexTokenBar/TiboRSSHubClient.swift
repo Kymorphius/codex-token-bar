@@ -14,9 +14,9 @@ enum TiboRSSHubError: LocalizedError {
         case .notLoggedIn:
             return "需要先在 Tibo 窗口的 X 原页登录。"
         case .runtimeMissing:
-            return "本机 RSSHub 运行组件尚未安装。"
+            return "RSSHub 运行组件缺失，请重新安装 Codex Token Bar。"
         case .nodeMissing:
-            return "没有找到本机 Node.js。"
+            return "Node.js 运行组件缺失，请重新安装 Codex Token Bar。"
         case .invalidResponse:
             return "RSSHub 返回了无法识别的结果。"
         case .service(let message):
@@ -87,7 +87,7 @@ final class TiboRSSHubClient {
         let stdout = Pipe()
         let stdin = Pipe()
         process.executableURL = nodeURL
-        process.currentDirectoryURL = Self.runtimeRoot
+        process.currentDirectoryURL = Self.workingRoot
         process.arguments = [
             runnerURL.path,
             moduleURL.path,
@@ -226,10 +226,39 @@ final class TiboRSSHubClient {
             normalized == "twitter.com" || normalized.hasSuffix(".twitter.com")
     }
 
-    private static let runtimeRoot = FileManager.default.homeDirectoryForCurrentUser
+    private static let legacyRuntimeRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Codex Token Bar/rsshub-runtime")
 
+    private static let workingRoot: URL = {
+        let root = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Codex Token Bar/rsshub-work")
+        try? FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        return root
+    }()
+
+    private static let bundledRuntimeRoot = Bundle.main.resourceURL?
+        .appendingPathComponent("rsshub-runtime", isDirectory: true)
+
+    private static let runtimeRoot: URL = {
+        if let bundledRuntimeRoot,
+           FileManager.default.fileExists(
+            atPath: bundledRuntimeRoot
+                .appendingPathComponent("node_modules/rsshub/dist-lib/pkg.mjs")
+                .path
+           ) {
+            return bundledRuntimeRoot
+        }
+        return legacyRuntimeRoot
+    }()
+
     private static let nodeURL: URL? = {
+        if let bundledNode = bundledRuntimeRoot?.appendingPathComponent("node"),
+           FileManager.default.isExecutableFile(atPath: bundledNode.path) {
+            return bundledNode
+        }
         let candidates = [
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/node"),
             URL(fileURLWithPath: "/opt/homebrew/bin/node"),

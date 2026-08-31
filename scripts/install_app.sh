@@ -7,8 +7,6 @@ built_app="$(${script_dir}/build_app.sh release | tail -1)"
 install_root="${HOME}/Applications"
 installed_app="${install_root}/Codex Token Bar.app"
 
-"${script_dir}/install_rsshub_runtime.sh"
-
 /usr/bin/osascript -e 'tell application id "dev.333.codex-token-bar" to quit' 2>/dev/null || true
 for _ in {1..20}; do
     if ! /usr/bin/pgrep -x CodexTokenBar >/dev/null 2>&1; then
