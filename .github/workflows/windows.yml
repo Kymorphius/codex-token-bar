@@ -3,8 +3,12 @@ name: Windows build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -30,3 +34,27 @@ jobs:
             dist/windows-x64/CodexTokenBar.exe
             dist/CodexTokenBar-Windows-x64-Setup.exe
           if-no-files-found: error
+      - name: Publish Windows release files
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $portable = "dist/windows-x64/CodexTokenBar.exe"
+          $installer = "dist/CodexTokenBar-Windows-x64-Setup.exe"
+          $checksums = "dist/SHA256SUMS-Windows.txt"
+          @(
+            "$(Get-FileHash -Algorithm SHA256 $portable | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64.exe"
+            "$(Get-FileHash -Algorithm SHA256 $installer | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64-Setup.exe"
+          ) | Set-Content -Encoding ascii $checksums
+          Copy-Item $portable "dist/CodexTokenBar-Windows-x64.exe"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --verify-tag --title $tag --generate-notes
+          }
+          gh release upload $tag `
+            "dist/CodexTokenBar-Windows-x64.exe" `
+            $installer `
+            $checksums `
+            --clobber
