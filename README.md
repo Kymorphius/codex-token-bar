@@ -1,5 +1,9 @@
 # Codex Token Bar
 
+<p align="center">
+  <img src="Resources/AppIcon.png" alt="Codex Token Bar Logo" width="160">
+</p>
+
 一个原生桌面托盘小工具，在 macOS 菜单栏或 Windows 系统托盘直接显示 Codex 当前剩余额度，例如：
 
 ```text

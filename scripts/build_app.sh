@@ -43,6 +43,7 @@ trap cleanup EXIT
 /bin/mkdir -p "${staged_app}/Contents/MacOS" "${staged_app}/Contents/Resources"
 /usr/bin/ditto "${binary_dir}/CodexTokenBar" "${staged_app}/Contents/MacOS/CodexTokenBar"
 /usr/bin/ditto "${project_dir}/Resources/Info.plist" "${staged_app}/Contents/Info.plist"
+/usr/bin/ditto "${project_dir}/Resources/AppIcon.icns" "${staged_app}/Contents/Resources/AppIcon.icns"
 /usr/bin/ditto "${project_dir}/Resources/rsshub-runner.mjs" "${staged_app}/Contents/Resources/rsshub-runner.mjs"
 
 if [[ "${bundle_rsshub}" == true ]]; then

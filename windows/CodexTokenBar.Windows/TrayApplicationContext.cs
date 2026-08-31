@@ -53,7 +53,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         StartupManager.EnsureDefaultEnabled();
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application,
             Text = "Codex Token Bar · 正在读取额度…",
             Visible = true
         };

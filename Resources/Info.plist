@@ -12,6 +12,8 @@
     <string>dev.333.codex-token-bar</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleName</key>
     <string>Codex Token Bar</string>
     <key>CFBundlePackageType</key>

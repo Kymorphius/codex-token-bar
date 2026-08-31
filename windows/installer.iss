@@ -20,6 +20,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=CodexTokenBar.Windows\app.ico
 
 [Files]
 Source: "..\dist\windows-x64\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
