@@ -59,6 +59,8 @@ App 会优先使用本机按需启动的 RSSHub 读取 Tibo 完整时间线。RS
 3. 按照窗口中的箭头，把 `Codex Token Bar.app` 拖到“应用程序”文件夹。
 4. 从“应用程序”文件夹启动 Codex Token Bar。
 
+![把 Codex Token Bar 拖入“应用程序”文件夹的 DMG 安装界面](docs/screenshots/install-dmg.png)
+
 如果 macOS 首次启动时提示无法验证开发者，请在 Finder 中按住 `Control` 点击 App、选择“打开”，再确认一次。安装完成后可在菜单里打开“登录时自动启动”。整个安装过程不需要命令行。
 
 菜单中的“检查 GitHub 更新…”会读取项目最新的 GitHub Release，并与当前 App 版本比较。发现新版本后优先下载 DMG；如果没有 DMG，才使用 ZIP 或打开对应的发布页面。用户也可以开启“自动检查 GitHub 更新”：该设置默认关闭，开启后会在 App 启动时检查，并每 24 小时检查一次；同一版本只主动提示一次。检查更新不需要 GitHub Token，也不会在未经确认时安装或替换 App。
