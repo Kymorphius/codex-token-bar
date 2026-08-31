@@ -9,11 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let usageHistory = UsageHistoryStore()
     private let tiboPostStore = TiboPostStore()
     private let tiboRSSHubClient = TiboRSSHubClient()
+    private let codexLunaTranslationClient = CodexLunaTranslationClient()
+    private let githubUpdateChecker = GitHubUpdateChecker()
+    private let tiboHoverPreview = TiboHoverPreviewController()
     private var snapshot: UsageSnapshot?
     private var tokenUsageSnapshot: TokenUsageSnapshot?
     private var lastError: String?
     private var refreshTimer: Timer?
     private var tiboRefreshTimer: Timer?
+    private var githubUpdateTimer: Timer?
     private var tiboFeedWindowController: TiboFeedWindowController?
     private var usageHeatmapWindowController: UsageHeatmapWindowController?
     private var isRefreshingTiboRSS = false
@@ -21,6 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tiboRSSStatus = "本机 RSSHub 等待首次更新"
     private var latestTiboRSSPosts: [TiboPost] = []
     private var latestTiboRSSRepliesAvailable = false
+    private var tiboHoverReadTimer: Timer?
+    private var hoveredTiboURL: URL?
+    private weak var tiboHeaderMenuItem: NSMenuItem?
+    private var codexTranslatingURLs: Set<URL> = []
+    private var isCheckingForUpdates = false
 
     private func setTiboRSSStatus(_ status: String) {
         tiboRSSStatus = status
@@ -29,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Native menu-item tooltips impose an uncontrollable first-show delay, so
+        // Tibo previews use an app-owned panel instead.
+        UserDefaults.standard.removeObject(forKey: "NSInitialToolTipDelay")
+
         NSApp.setActivationPolicy(.accessory)
         configureEditCommands()
 
@@ -79,10 +92,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tiboRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
             self?.refreshTiboFromRSSHub()
         }
+        configureAutomaticUpdateChecks(checkSoon: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             self?.refreshTiboFromRSSHub()
         }
         rebuildMenu()
+        scheduleCodexTranslationsIfNeeded()
     }
 
     private func configureEditCommands() {
@@ -144,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
         tiboRefreshTimer?.invalidate()
+        githubUpdateTimer?.invalidate()
         tiboRSSHubClient.stop()
         client.stop()
     }
@@ -154,6 +170,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refreshTiboFromRSSHub()
         }
         rebuildMenu()
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        cancelTiboHoverRead()
+        guard menu === statusMenu else { return }
+        guard
+            let url = item?.representedObject as? URL,
+            let post = tiboPostStore.posts.first(where: { $0.url == url })
+        else {
+            tiboHoverPreview.hide()
+            return
+        }
+
+        tiboHoverPreview.show(post: post, near: NSEvent.mouseLocation)
+        guard
+            tiboPostStore.isUnread(url)
+        else { return }
+
+        hoveredTiboURL = url
+        let timer = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
+            guard let self, self.hoveredTiboURL == url else { return }
+            self.hoveredTiboURL = nil
+            self.tiboHoverReadTimer = nil
+            guard self.tiboPostStore.markRead(url) else { return }
+            self.updateStatusItem()
+            self.updateTiboHeaderMenuItem()
+        }
+        tiboHoverReadTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === statusMenu {
+            cancelTiboHoverRead()
+            tiboHoverPreview.hide()
+        }
     }
 
     private func updateStatusItem() {
@@ -227,6 +279,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchItem.state = launchAtLoginState
         menu.addItem(launchItem)
 
+        let updateItem = NSMenuItem(
+            title: isCheckingForUpdates ? "正在检查 GitHub 更新…" : "检查 GitHub 更新…",
+            action: #selector(checkForGitHubUpdates),
+            keyEquivalent: ""
+        )
+        updateItem.target = self
+        updateItem.isEnabled = !isCheckingForUpdates
+        menu.addItem(updateItem)
+
+        let automaticUpdateItem = NSMenuItem(
+            title: "自动检查 GitHub 更新",
+            action: #selector(toggleAutomaticUpdateChecks),
+            keyEquivalent: ""
+        )
+        automaticUpdateItem.target = self
+        automaticUpdateItem.state = automaticUpdateChecksEnabled ? .on : .off
+        menu.addItem(automaticUpdateItem)
+
         menu.addItem(.separator())
 
         let aboutItem = NSMenuItem(title: "关于 Codex Token Bar", action: #selector(showAbout), keyEquivalent: "")
@@ -284,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func addTiboTools(to menu: NSMenu) {
         menu.addItem(.separator())
         let unread = tiboPostStore.unreadCount
-        addDisabledItem(
+        tiboHeaderMenuItem = addDisabledItem(
             unread > 0 ? "Tibo 动态 · \(unread) 条未读" : "Tibo 动态",
             to: menu,
             bold: true
@@ -299,7 +369,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.target = self
             item.representedObject = post.url
             item.indentationLevel = 1
-            item.toolTip = post.text
             menu.addItem(item)
 
             let anchorDate = post.postedAt ?? post.capturedAt
@@ -490,12 +559,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return startDate > latestStartDate ? "tokens 待官方更新" : "0 tokens"
     }
 
+    @discardableResult
     private func addDisabledItem(
         _ title: String,
         to menu: NSMenu,
         bold: Bool = false,
         indented: Bool = false
-    ) {
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         item.indentationLevel = indented ? 1 : 0
@@ -510,6 +580,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
         }
         menu.addItem(item)
+        return item
+    }
+
+    private func cancelTiboHoverRead() {
+        tiboHoverReadTimer?.invalidate()
+        tiboHoverReadTimer = nil
+        hoveredTiboURL = nil
+    }
+
+    private func updateTiboHeaderMenuItem() {
+        let unread = tiboPostStore.unreadCount
+        let title = unread > 0 ? "Tibo 动态 · \(unread) 条未读" : "Tibo 动态"
+        tiboHeaderMenuItem?.title = title
+        tiboHeaderMenuItem?.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(
+                    ofSize: NSFont.systemFontSize,
+                    weight: .semibold
+                ),
+                .foregroundColor: NSColor.labelColor
+            ]
+        )
     }
 
     private func addNonInteractiveBrightItem(
@@ -589,6 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let suffix = feed.repliesAvailable ? " · 包含回复" : " · 回复源暂不可用"
                 self.setTiboRSSStatus("RSSHub 已更新 \(feed.posts.count) 条" + suffix)
                 _ = self.tiboPostStore.merge(feed.posts)
+                self.scheduleCodexTranslationsIfNeeded()
                 if self.tiboFeedWindowController?.window?.isVisible == true {
                     _ = self.tiboPostStore.markAllRead()
                 }
@@ -626,6 +720,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.showAlert(title: "无法打开 Codex", message: error.localizedDescription)
                 }
             }
+        }
+    }
+
+    private func scheduleCodexTranslationsIfNeeded() {
+        let pending = tiboPostStore.posts.prefix(4).filter {
+            $0.codexTranslatedText == nil && !codexTranslatingURLs.contains($0.url)
+        }
+        guard !pending.isEmpty else { return }
+
+        codexTranslatingURLs.formUnion(pending.map(\.url))
+        let inputs = pending.map {
+            CodexLunaTranslationClient.Input(url: $0.url, text: $0.text)
+        }
+        codexLunaTranslationClient.translate(inputs) { [weak self] result in
+            guard let self else { return }
+            self.codexTranslatingURLs.subtract(pending.map(\.url))
+            if case .success(let translations) = result {
+                for (url, translation) in translations {
+                    _ = self.tiboPostStore.setCodexTranslation(translation, for: url)
+                }
+            }
+            self.rebuildMenu()
         }
     }
 
@@ -723,6 +839,104 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ])
     }
 
+    @objc private func checkForGitHubUpdates() {
+        performGitHubUpdateCheck(userInitiated: true)
+    }
+
+    @objc private func toggleAutomaticUpdateChecks() {
+        let enabled = !automaticUpdateChecksEnabled
+        UserDefaults.standard.set(enabled, forKey: "github-auto-update-checks-v1")
+        configureAutomaticUpdateChecks(checkSoon: enabled)
+        rebuildMenu()
+    }
+
+    private func configureAutomaticUpdateChecks(checkSoon: Bool) {
+        githubUpdateTimer?.invalidate()
+        githubUpdateTimer = nil
+        guard automaticUpdateChecksEnabled else { return }
+
+        githubUpdateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) {
+            [weak self] _ in
+            self?.performGitHubUpdateCheck(userInitiated: false)
+        }
+
+        if checkSoon {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard self?.automaticUpdateChecksEnabled == true else { return }
+                self?.performGitHubUpdateCheck(userInitiated: false)
+            }
+        }
+    }
+
+    private func performGitHubUpdateCheck(userInitiated: Bool) {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        rebuildMenu()
+
+        let currentVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "1.0.0"
+
+        githubUpdateChecker.check(currentVersion: currentVersion) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isCheckingForUpdates = false
+                self.rebuildMenu()
+
+                switch result {
+                case .success(.updateAvailable(let release)):
+                    if !userInitiated,
+                       UserDefaults.standard.string(forKey: "github-last-prompted-version-v1") == release.version {
+                        return
+                    }
+                    UserDefaults.standard.set(
+                        release.version,
+                        forKey: "github-last-prompted-version-v1"
+                    )
+                    self.showAvailableUpdate(release, currentVersion: currentVersion)
+                case .success(.upToDate(let latestVersion)):
+                    if userInitiated {
+                        self.showAlert(
+                            title: "已经是最新版本",
+                            message: "当前版本为 \(currentVersion)，GitHub 最新版本为 \(latestVersion)。"
+                        )
+                    }
+                case .success(.noPublishedRelease):
+                    if userInitiated {
+                        self.showAlert(
+                            title: "暂无 GitHub Release",
+                            message: "仓库还没有发布可下载的版本，请稍后再试。"
+                        )
+                    }
+                case .failure(let error):
+                    if userInitiated {
+                        self.showAlert(title: "检查更新失败", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    private func showAvailableUpdate(_ release: GitHubRelease, currentVersion: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "发现新版本 \(release.version)"
+        alert.informativeText = "当前版本为 \(currentVersion)。更新来自项目的 GitHub Releases。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: release.downloadURL == nil ? "打开 GitHub Release" : "下载更新")
+        alert.addButton(withTitle: "查看发布说明")
+        alert.addButton(withTitle: "稍后")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            NSWorkspace.shared.open(release.downloadURL ?? release.pageURL)
+        case .alertSecondButtonReturn:
+            NSWorkspace.shared.open(release.pageURL)
+        default:
+            break
+        }
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -731,6 +945,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         SMAppService.mainApp.status == .requiresApproval
             ? "登录时自动启动（等待系统允许）"
             : "登录时自动启动"
+    }
+
+    private var automaticUpdateChecksEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "github-auto-update-checks-v1")
     }
 
     private var launchAtLoginState: NSControl.StateValue {

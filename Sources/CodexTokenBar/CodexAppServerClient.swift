@@ -295,7 +295,7 @@ final class CodexAppServerClient {
         }
     }
 
-    private static func findCodexExecutable() -> URL? {
+    static func findCodexExecutable() -> URL? {
         var paths: [String] = []
         if let override = ProcessInfo.processInfo.environment["CODEX_TOKEN_BAR_CODEX_PATH"] {
             paths.append(override)

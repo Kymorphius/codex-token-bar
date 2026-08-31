@@ -7,6 +7,8 @@ struct TiboPost: Codable, Equatable {
     let capturedAt: Date
     var translatedText: String?
     var translatedAt: Date?
+    var codexTranslatedText: String?
+    var codexTranslatedAt: Date?
     var isPossiblyTruncated: Bool?
     var isFromRSSHub: Bool?
 
@@ -17,6 +19,8 @@ struct TiboPost: Codable, Equatable {
         capturedAt: Date,
         translatedText: String? = nil,
         translatedAt: Date? = nil,
+        codexTranslatedText: String? = nil,
+        codexTranslatedAt: Date? = nil,
         isPossiblyTruncated: Bool? = nil,
         isFromRSSHub: Bool? = nil
     ) {
@@ -26,6 +30,8 @@ struct TiboPost: Codable, Equatable {
         self.capturedAt = capturedAt
         self.translatedText = translatedText
         self.translatedAt = translatedAt
+        self.codexTranslatedText = codexTranslatedText
+        self.codexTranslatedAt = codexTranslatedAt
         self.isPossiblyTruncated = isPossiblyTruncated
         self.isFromRSSHub = isFromRSSHub
     }
@@ -64,6 +70,10 @@ final class TiboPostStore {
         }
     }
 
+    func isUnread(_ url: URL) -> Bool {
+        !readURLStrings.contains(url.absoluteString)
+    }
+
     @discardableResult
     func merge(_ newPosts: [TiboPost]) -> Bool {
         guard !newPosts.isEmpty else { return false }
@@ -81,6 +91,8 @@ final class TiboPostStore {
                         post.isPossiblyTruncated = false
                     }
                 }
+                post.codexTranslatedText = post.codexTranslatedText ?? existing.codexTranslatedText
+                post.codexTranslatedAt = post.codexTranslatedAt ?? existing.codexTranslatedAt
                 post.isFromRSSHub = isFromRSSHub
             }
             byURL[post.url.absoluteString] = post
@@ -100,6 +112,19 @@ final class TiboPostStore {
         guard let index = posts.firstIndex(where: { $0.url == url }) else { return false }
         posts[index].translatedText = translation
         posts[index].translatedAt = date
+        save()
+        return true
+    }
+
+    @discardableResult
+    func setCodexTranslation(
+        _ translation: String,
+        for url: URL,
+        at date: Date = Date()
+    ) -> Bool {
+        guard let index = posts.firstIndex(where: { $0.url == url }) else { return false }
+        posts[index].codexTranslatedText = translation
+        posts[index].codexTranslatedAt = date
         save()
         return true
     }
