@@ -45,16 +45,16 @@ jobs:
           $installer = "dist/CodexTokenBar-Windows-x64-Setup.exe"
           $checksums = "dist/SHA256SUMS-Windows.txt"
           @(
-            "$(Get-FileHash -Algorithm SHA256 $portable | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64.exe"
+            "$(Get-FileHash -Algorithm SHA256 $portable | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64-Portable.exe"
             "$(Get-FileHash -Algorithm SHA256 $installer | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64-Setup.exe"
           ) | Set-Content -Encoding ascii $checksums
-          Copy-Item $portable "dist/CodexTokenBar-Windows-x64.exe"
+          Copy-Item $portable "dist/CodexTokenBar-Windows-x64-Portable.exe"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --verify-tag --title $tag --generate-notes
           }
           gh release upload $tag `
-            "dist/CodexTokenBar-Windows-x64.exe" `
+            "dist/CodexTokenBar-Windows-x64-Portable.exe" `
             $installer `
             $checksums `
             --clobber

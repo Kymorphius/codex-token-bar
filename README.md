@@ -70,6 +70,11 @@ Windows 版支持 Windows 10/11 x64，使用原生系统托盘界面，并提供
 - 首次运行默认开启登录 Windows 时自动启动，也可从托盘菜单关闭；
 - Codex 断线后自动重新连接。
 
+从 [GitHub Releases](https://github.com/Kymorphius/codex-token-bar/releases/latest) 下载时可选择：
+
+- `CodexTokenBar-Windows-x64-Setup.exe`：安装版，推荐大多数用户使用；
+- `CodexTokenBar-Windows-x64-Portable.exe`：便携版（Portable），无需安装，但由于包含完整运行环境，文件会明显更大。
+
 使用前请先按照 [Codex CLI 官方说明](https://developers.openai.com/codex/cli/) 安装并登录 Codex。Windows 版会自动查找 `PATH`、npm 全局安装目录和 Codex/ChatGPT 桌面应用内的 `codex.exe`；也可以通过 `CODEX_TOKEN_BAR_CODEX_PATH` 指定路径。
 
 Windows 版保留 Tibo 菜单位置、X 时间线与回复入口，并通过独立的 WebView2 用户数据目录支持内嵌 X 登录和登录 Cookie 自动检测。检测到登录后会按需安装并运行一次性本机 RSSHub，最近 20 条公开消息缓存在本机，最近 4 条直接显示在托盘菜单中。应用不读取输入的账号或密码，检测到的 `auth_token` 不显示、不写日志、不以明文保存；为了让登录自启动后能够自动刷新，它会额外使用 Windows 当前用户的数据保护功能加密保存，其他 Windows 用户不能解密。
@@ -84,7 +89,7 @@ Windows 内置 X 页面默认跟随 Windows 显示语言，也可以在窗口顶
 .\scripts\build_windows.ps1
 ```
 
-生成的免安装单文件位于 `dist\windows-x64\CodexTokenBar.exe`。正式构建会先运行一次 Twitter 用户路由并记录实际加载模块，只保留该模块集合及其依赖闭包，再将便携 Node 和精简 RSSHub 压缩进单文件。用户首次运行时只在本机解压，不需要系统预装 Node/npm，也不需要联网安装 RSSHub；开发时可传入 `-SkipBundledRssHub` 跳过内置组件。如果已安装 Inno Setup，同一脚本还会生成 `dist\CodexTokenBar-Windows-x64-Setup.exe`。仓库中的 Windows GitHub Actions 工作流也会在每次推送和拉取请求时构建可下载的 EXE artifact。
+生成的免安装单文件位于 `dist\windows-x64\CodexTokenBar.exe`，发布到 GitHub 时会命名为 `CodexTokenBar-Windows-x64-Portable.exe`。正式构建会先运行一次 Twitter 用户路由并记录实际加载模块，只保留该模块集合及其依赖闭包，再将便携 Node 和精简 RSSHub 压缩进单文件。用户首次运行时只在本机解压，不需要系统预装 Node/npm，也不需要联网安装 RSSHub；开发时可传入 `-SkipBundledRssHub` 跳过内置组件。如果已安装 Inno Setup，同一脚本还会生成 `dist\CodexTokenBar-Windows-x64-Setup.exe`。仓库中的 Windows GitHub Actions 工作流也会在每次推送和拉取请求时构建可下载的 EXE artifact。
 
 ## macOS 安装并启动
 
