@@ -1,10 +1,14 @@
 # Codex Token Bar
 
-一个原生 macOS 菜单栏小工具，在顶部直接显示 Codex 当前剩余额度，例如：
+一个原生桌面托盘小工具，在 macOS 菜单栏或 Windows 系统托盘直接显示 Codex 当前剩余额度，例如：
 
 ```text
 23%
 ```
+
+<p align="center">
+  <img src="docs/screenshots/token-bar-dropdown.png" alt="Codex Token Bar 下拉菜单界面" width="360">
+</p>
 
 点击后可查看每个 Codex 额度桶的剩余百分比、窗口长度、距离重置的天数与小时数、每天平均可用百分比、具体重置时间、套餐，以及每次可用额度重置的有效期。
 
@@ -50,7 +54,35 @@ App 会优先使用本机按需启动的 RSSHub 读取 Tibo 完整时间线。RS
 
 不足一天的长周期额度会直接显示本周期尚可使用的余额；短于一天的额度窗口不计算日均值。
 
-## 安装并启动
+## Windows 版本
+
+Windows 版支持 Windows 10/11 x64，使用原生系统托盘界面，并提供：
+
+- 托盘图标直接显示主 Codex 剩余额度；
+- 主额度与其他额度桶的剩余百分比、窗口长度、重置倒计时和套餐信息；
+- 与 macOS 相同顺序的额度重置、近 7 天快照增量、官方每日 tokens、太平洋时间与 Spark 折叠菜单；
+- 北京时间与太平洋时间双向换算、全年使用热力图和 GitHub 更新检查；
+- 每 60 秒自动刷新，以及手动刷新；
+- 首次运行默认开启登录 Windows 时自动启动，也可从托盘菜单关闭；
+- Codex 断线后自动重新连接。
+
+使用前请先按照 [Codex CLI 官方说明](https://developers.openai.com/codex/cli/) 安装并登录 Codex。Windows 版会自动查找 `PATH`、npm 全局安装目录和 Codex/ChatGPT 桌面应用内的 `codex.exe`；也可以通过 `CODEX_TOKEN_BAR_CODEX_PATH` 指定路径。
+
+Windows 版保留 Tibo 菜单位置、X 时间线与回复入口，并通过独立的 WebView2 用户数据目录支持内嵌 X 登录和登录 Cookie 自动检测。检测到登录后会按需安装并运行一次性本机 RSSHub，最近 20 条公开消息缓存在本机，最近 4 条直接显示在托盘菜单中。应用不读取输入的账号或密码，检测到的 `auth_token` 不显示、不写日志、不以明文保存；为了让登录自启动后能够自动刷新，它会额外使用 Windows 当前用户的数据保护功能加密保存，其他 Windows 用户不能解密。
+
+Windows 内置 X 页面默认跟随 Windows 显示语言，也可以在窗口顶部手动选择简体中文、繁体中文、英语、日语、韩语、法语、德语或西班牙语。选择会保存，并同时应用到 WebView2、X 的语言 Cookie 和页面地址；旁边的“X 翻译设置”可直接打开 X 自己的语言与翻译设置页。
+
+### Windows 开发者构建
+
+需要 Windows 10/11 和 .NET 8 SDK。在 PowerShell 中运行：
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+生成的免安装单文件位于 `dist\windows-x64\CodexTokenBar.exe`。正式构建会先运行一次 Twitter 用户路由并记录实际加载模块，只保留该模块集合及其依赖闭包，再将便携 Node 和精简 RSSHub 压缩进单文件。用户首次运行时只在本机解压，不需要系统预装 Node/npm，也不需要联网安装 RSSHub；开发时可传入 `-SkipBundledRssHub` 跳过内置组件。如果已安装 Inno Setup，同一脚本还会生成 `dist\CodexTokenBar-Windows-x64-Setup.exe`。仓库中的 Windows GitHub Actions 工作流也会在每次推送和拉取请求时构建可下载的 EXE artifact。
+
+## macOS 安装并启动
 
 需要 macOS 13 或更新版本，并已安装且登录 Codex/ChatGPT 桌面应用。
 
@@ -59,15 +91,13 @@ App 会优先使用本机按需启动的 RSSHub 读取 Tibo 完整时间线。RS
 3. 按照窗口中的箭头，把 `Codex Token Bar.app` 拖到“应用程序”文件夹。
 4. 从“应用程序”文件夹启动 Codex Token Bar。
 
-![把 Codex Token Bar 拖入“应用程序”文件夹的 DMG 安装界面](docs/screenshots/install-dmg.png)
-
 如果 macOS 首次启动时提示无法验证开发者，请在 Finder 中按住 `Control` 点击 App、选择“打开”，再确认一次。安装完成后可在菜单里打开“登录时自动启动”。整个安装过程不需要命令行。
 
 菜单中的“检查 GitHub 更新…”会读取项目最新的 GitHub Release，并与当前 App 版本比较。发现新版本后优先下载 DMG；如果没有 DMG，才使用 ZIP 或打开对应的发布页面。用户也可以开启“自动检查 GitHub 更新”：该设置默认关闭，开启后会在 App 启动时检查，并每 24 小时检查一次；同一版本只主动提示一次。检查更新不需要 GitHub Token，也不会在未经确认时安装或替换 App。
 
 如果菜单栏图标很多，macOS 可能会因为空间不足临时隐藏新项目。此时先在对应应用或系统设置里隐藏一个不需要的菜单栏项目；部分系统图标也可以按住 `Command` 拖走。腾出空间后，百分比会自动出现。
 
-## 开发者构建
+## macOS 开发者构建
 
 构建 App：
 
