@@ -78,8 +78,9 @@ final class GitHubUpdateChecker {
                 let latestVersion = SemanticVersion.normalized(response.tagName)
                 if SemanticVersion.isNewer(latestVersion, than: currentVersion) {
                     let preferredAsset = response.assets.first {
-                        let name = $0.name.lowercased()
-                        return name.hasSuffix(".dmg") || name.hasSuffix(".zip")
+                        $0.name.lowercased().hasSuffix(".dmg")
+                    } ?? response.assets.first {
+                        $0.name.lowercased().hasSuffix(".zip")
                     }
                     completion(.success(.updateAvailable(GitHubRelease(
                         version: latestVersion,
