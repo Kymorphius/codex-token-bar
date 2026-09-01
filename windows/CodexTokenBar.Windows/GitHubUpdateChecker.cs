@@ -36,6 +36,21 @@ internal static class AppSettings
             key.SetValue("AutomaticUpdateChecks", value ? 1 : 0, RegistryValueKind.DWord);
         }
     }
+
+    public static string? DisplayTimeZoneId
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(KeyPath);
+            return key?.GetValue("DisplayTimeZoneId") as string;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(KeyPath, writable: true);
+            if (string.IsNullOrWhiteSpace(value)) key.DeleteValue("DisplayTimeZoneId", throwOnMissingValue: false);
+            else key.SetValue("DisplayTimeZoneId", value, RegistryValueKind.String);
+        }
+    }
 }
 
 internal sealed class GitHubUpdateChecker
@@ -68,7 +83,7 @@ internal sealed class GitHubUpdateChecker
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CodexTokenBar", "1.3.1"));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CodexTokenBar", "1.3.2"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }

@@ -7,7 +7,7 @@ namespace CodexTokenBar.Windows;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
-    private const string Version = "1.3.1";
+    private const string Version = "1.3.2";
     private readonly SynchronizationContext _uiContext;
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu = new()
@@ -263,7 +263,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var abbreviation = pacificZone.IsDaylightSavingTime(pacificNow) ? "PDT" : "PST";
         var item = new ToolStripMenuItem($"时间 · {abbreviation} {pacificNow:HH:mm}");
         AddLabel(item.DropDownItems, $"太平洋时间（{abbreviation}）：{pacificNow:M月d日 ddd HH:mm}", bright: true);
-        AddAction(item.DropDownItems, "太平洋时间 → 北京时间换算…", (_, _) => new TimeConverterForm().ShowDialog());
+        AddAction(item.DropDownItems, "太平洋时间 ↔ 本地时间换算…", (_, _) => new TimeConverterForm().ShowDialog());
+        var mode = AppSettings.DisplayTimeZoneId is null ? "跟随系统" : DisplayTimeZone.Name(DisplayTimeZone.Current);
+        AddAction(item.DropDownItems, $"显示时区：{mode}…", (_, _) =>
+        {
+            using var form = new TimeZoneSettingsForm();
+            form.ShowDialog();
+        });
         _menu.Items.Add(item);
     }
 

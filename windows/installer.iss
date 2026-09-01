@@ -1,5 +1,5 @@
 #define MyAppName "Codex Token Bar"
-#define MyAppVersion "1.3.1"
+#define MyAppVersion "1.3.2"
 #define MyAppPublisher "333.dev"
 #define MyAppExeName "CodexTokenBar.exe"
 

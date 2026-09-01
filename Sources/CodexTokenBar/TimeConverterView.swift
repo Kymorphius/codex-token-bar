@@ -6,13 +6,21 @@ final class TimeConverterView: NSView {
     private let datePicker = NSDatePicker(frame: .zero)
     private let resultLabel = NSTextField(labelWithString: "")
     private var currentSourceTimeZone = TimeZoneConversion.pacificTimeZone
+    private let localTimeZone: TimeZone
+    private let localName: String
 
-    init(now: Date = Date()) {
+    init(
+        now: Date = Date(),
+        localTimeZone: TimeZone = DisplayTimeZoneSettings.timeZone,
+        localName: String = DisplayTimeZoneSettings.name
+    ) {
+        self.localTimeZone = localTimeZone
+        self.localName = localName
         super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 145))
 
         sourcePopup.addItems(withTitles: [
             "太平洋时间（自动 PST/PDT）",
-            "北京时间（UTC+8）"
+            localName
         ])
         sourcePopup.selectItem(at: 0)
         sourcePopup.target = self
@@ -97,17 +105,17 @@ final class TimeConverterView: NSView {
     private var sourceTimeZone: TimeZone {
         sourcePopup.indexOfSelectedItem == 0
             ? TimeZoneConversion.pacificTimeZone
-            : TimeZoneConversion.beijingTimeZone
+            : localTimeZone
     }
 
     private var destinationTimeZone: TimeZone {
         sourcePopup.indexOfSelectedItem == 0
-            ? TimeZoneConversion.beijingTimeZone
+            ? localTimeZone
             : TimeZoneConversion.pacificTimeZone
     }
 
     private var destinationName: String {
-        sourcePopup.indexOfSelectedItem == 0 ? "北京时间" : "太平洋时间"
+        sourcePopup.indexOfSelectedItem == 0 ? localName : "太平洋时间"
     }
 
     private func updateResult() {
@@ -118,7 +126,7 @@ final class TimeConverterView: NSView {
         formatter.dateFormat = "yyyy年M月d日 EEEE HH:mm"
 
         let abbreviation = sourcePopup.indexOfSelectedItem == 0
-            ? "UTC+8"
+            ? DisplayTimeZoneSettings.utcOffset(for: localTimeZone, at: datePicker.dateValue)
             : TimeZoneConversion.pacificAbbreviation(at: datePicker.dateValue)
         let suffix = " \(abbreviation)"
         resultLabel.stringValue = "\(destinationName)：\(formatter.string(from: datePicker.dateValue))\(suffix)"

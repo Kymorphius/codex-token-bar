@@ -237,6 +237,13 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         )
         rssButton.bezelStyle = .rounded
 
+        let loginButton = NSButton(
+            title: "登录 X",
+            target: self,
+            action: #selector(showXLogin)
+        )
+        loginButton.bezelStyle = .rounded
+
         let repliesButton = NSButton(
             title: "查看不同帖子下的回复",
             target: self,
@@ -270,6 +277,7 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         sourceLabel.widthAnchor.constraint(equalToConstant: 42).isActive = true
         let primaryButtonRow = NSStackView(views: [
             sourceLabel,
+            loginButton,
             rssButton,
             updateButton,
             repliesButton,
@@ -402,14 +410,26 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
             )
             detail.textColor = .secondaryLabelColor
 
-            let button = NSButton(
+            let loginButton = NSButton(
+                title: "登录 X",
+                target: self,
+                action: #selector(showXLogin)
+            )
+            loginButton.bezelStyle = .rounded
+
+            let refreshButton = NSButton(
                 title: "刷新 RSS",
                 target: self,
                 action: #selector(refreshRSS)
             )
-            button.bezelStyle = .rounded
+            refreshButton.bezelStyle = .rounded
 
-            let emptyStack = NSStackView(views: [title, detail, button])
+            let buttonRow = NSStackView(views: [loginButton, refreshButton])
+            buttonRow.orientation = .horizontal
+            buttonRow.spacing = TiboLayout.small
+            buttonRow.alignment = .centerY
+
+            let emptyStack = NSStackView(views: [title, detail, buttonRow])
             emptyStack.orientation = .vertical
             emptyStack.alignment = .leading
             emptyStack.spacing = TiboLayout.medium
@@ -525,7 +545,7 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         if !timeConversions.isEmpty {
             let conversionLabel = NSTextField(
                 wrappingLabelWithString: timeConversions
-                    .map(Self.beijingTimeConversionText)
+                    .map(Self.localTimeConversionText)
                     .joined(separator: "\n")
             )
             conversionLabel.font = .systemFont(
@@ -782,6 +802,10 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         load(Self.profileURL, description: "正在打开最新公开发言…")
     }
 
+    @objc private func showXLogin() {
+        load(Self.loginURL, description: "正在打开 X 登录页面…")
+    }
+
     @objc private func showReplies() {
         load(Self.repliesURL, description: "正在查询 Tibo 在不同帖子下的回复…")
     }
@@ -980,14 +1004,18 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         return post.text.count >= 270
     }
 
-    private static func beijingTimeConversionText(
+    func refreshDisplayedTimes() {
+        renderCurrentMode()
+    }
+
+    private static func localTimeConversionText(
         _ conversion: PacificTimeMentionConversion
     ) -> String {
-        let beijing = beijingTimeFormatter.string(from: conversion.beijingDate)
+        let local = localTimeFormatter().string(from: conversion.beijingDate)
         let pacific = sourceTimeFormatter(
             abbreviation: conversion.sourceAbbreviation
         ).string(from: conversion.sourceDate)
-        return "北京时间 · \(beijing)（原文 \(pacific) \(conversion.sourceAbbreviation)）"
+        return "\(DisplayTimeZoneSettings.name) · \(local)（原文 \(pacific) \(conversion.sourceAbbreviation)）"
     }
 
     private static func sourceTimeFormatter(abbreviation: String) -> DateFormatter {
@@ -1014,6 +1042,8 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
     }
 
     private static let profileURL = URL(string: "https://x.com/thsottiaux?lang=zh-cn")!
+
+    private static let loginURL = URL(string: "https://x.com/i/flow/login?lang=zh-cn")!
 
     private static let repliesURL: URL = {
         var components = URLComponents(string: "https://x.com/search")!
@@ -1052,13 +1082,13 @@ final class TiboFeedWindowController: NSWindowController, WKNavigationDelegate {
         return formatter
     }()
 
-    private static let beijingTimeFormatter: DateFormatter = {
+    private static func localTimeFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = TimeZoneConversion.beijingTimeZone
+        formatter.timeZone = DisplayTimeZoneSettings.timeZone
         formatter.dateFormat = "M月d日 HH:mm"
         return formatter
-    }()
+    }
 
     private static let iso8601Formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

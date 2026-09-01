@@ -335,12 +335,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addNonInteractiveBrightItem(Self.pacificTimeDescription(), to: timeMenu)
 
         let converterItem = NSMenuItem(
-            title: "太平洋时间 → 北京时间换算…",
+            title: "太平洋时间 ↔ 本地时间换算…",
             action: #selector(showTimeConverter),
             keyEquivalent: ""
         )
         converterItem.target = self
         timeMenu.addItem(converterItem)
+
+        let timeZoneItem = NSMenuItem(
+            title: "显示时区：\(displayTimeZoneModeDescription)…",
+            action: #selector(showTimeZoneSettings),
+            keyEquivalent: ""
+        )
+        timeZoneItem.target = self
+        timeMenu.addItem(timeZoneItem)
 
         let timeItem = NSMenuItem(
             title: Self.compactPacificTimeDescription(),
@@ -627,8 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ conversion: PacificTimeMentionConversion,
         to menu: NSMenu
     ) {
-        let beijing = Self.beijingMenuTimeFormatter.string(from: conversion.beijingDate)
-        let title = "↳ 北京时间 \(beijing) ← \(conversion.sourceText)"
+        let local = Self.localMenuTimeFormatter().string(from: conversion.beijingDate)
+        let title = "↳ \(DisplayTimeZoneSettings.name) \(local) ← \(conversion.sourceText)"
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         item.indentationLevel = 2
@@ -749,12 +757,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "北京时间 ↔ 太平洋时间"
+        alert.messageText = "本地时间 ↔ 太平洋时间"
         alert.informativeText = "选择输入时区和时间，换算结果会立即更新。"
         alert.alertStyle = .informational
         alert.accessoryView = TimeConverterView()
         alert.addButton(withTitle: "完成")
         alert.runModal()
+    }
+
+    @objc private func showTimeZoneSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 430, height: 28))
+        let systemZone = TimeZone.autoupdatingCurrent
+        let systemItem = NSMenuItem(
+            title: "跟随系统（\(DisplayTimeZoneSettings.displayName(for: systemZone))）",
+            action: nil,
+            keyEquivalent: ""
+        )
+        popup.menu?.addItem(systemItem)
+        popup.menu?.addItem(.separator())
+
+        for identifier in TimeZone.knownTimeZoneIdentifiers.sorted() {
+            guard let zone = TimeZone(identifier: identifier) else { continue }
+            let item = NSMenuItem(
+                title: "\(identifier) · \(DisplayTimeZoneSettings.displayName(for: zone))",
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.representedObject = identifier
+            popup.menu?.addItem(item)
+            if identifier == DisplayTimeZoneSettings.manualIdentifier {
+                popup.select(item)
+            }
+        }
+        if DisplayTimeZoneSettings.manualIdentifier == nil {
+            popup.select(systemItem)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "显示时区"
+        alert.informativeText = "默认跟随 macOS 系统时区；也可以选择一个固定时区。"
+        alert.alertStyle = .informational
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        DisplayTimeZoneSettings.manualIdentifier = popup.selectedItem?.representedObject as? String
+        tiboFeedWindowController?.refreshDisplayedTimes()
+        rebuildMenu()
+    }
+
+    private var displayTimeZoneModeDescription: String {
+        DisplayTimeZoneSettings.manualIdentifier == nil
+            ? "跟随系统"
+            : DisplayTimeZoneSettings.name
     }
 
     @objc private func showTiboFeed() {
@@ -1129,14 +1187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return formatter
     }()
 
-    private static let beijingMenuTimeFormatter: DateFormatter = {
+    private static func localMenuTimeFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = TimeZoneConversion.beijingTimeZone
+        formatter.timeZone = DisplayTimeZoneSettings.timeZone
         formatter.dateFormat = "M月d日 HH:mm"
         return formatter
-    }()
+    }
 
     private static let resetCreditExpiryFormatter: DateFormatter = {
         let formatter = DateFormatter()

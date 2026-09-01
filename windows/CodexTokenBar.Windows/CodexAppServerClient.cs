@@ -90,7 +90,7 @@ internal sealed class CodexAppServerClient : IDisposable
             id = _initializeRequestId,
             @params = new
             {
-                clientInfo = new { name = "codex_token_bar_windows", title = "Codex Token Bar", version = "1.3.1" }
+                clientInfo = new { name = "codex_token_bar_windows", title = "Codex Token Bar", version = "1.3.2" }
             }
         }, cancellationToken).ConfigureAwait(false);
 
