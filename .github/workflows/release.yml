@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'Release v')
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Build macOS DMG
+        run: ./scripts/build_dmg.sh
+      - name: Prepare macOS release files
+        shell: bash
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          dmg="dist/Codex-Token-Bar-${version}.dmg"
+          shasum -a 256 "$dmg" | sed 's#  dist/#  #' > dist/SHA256SUMS-macOS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            dist/Codex-Token-Bar-*.dmg
+            dist/SHA256SUMS-macOS.txt
+          if-no-files-found: error
+
+  windows:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'Release v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows packages
+        shell: pwsh
+        run: ./scripts/build_windows.ps1
+      - name: Prepare Windows release files
+        shell: pwsh
+        run: |
+          $portable = "dist/windows-x64/CodexTokenBar.exe"
+          $installer = "dist/CodexTokenBar-Windows-x64-Setup.exe"
+          $portableRelease = "dist/CodexTokenBar-Windows-x64-Portable.exe"
+          Copy-Item $portable $portableRelease
+          @(
+            "$(Get-FileHash -Algorithm SHA256 $portableRelease | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64-Portable.exe"
+            "$(Get-FileHash -Algorithm SHA256 $installer | Select-Object -ExpandProperty Hash)  CodexTokenBar-Windows-x64-Setup.exe"
+          ) | Set-Content -Encoding ascii "dist/SHA256SUMS-Windows.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/CodexTokenBar-Windows-x64-Portable.exe
+            dist/CodexTokenBar-Windows-x64-Setup.exe
+            dist/SHA256SUMS-Windows.txt
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create tag and publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 -c 'import plistlib; print(plistlib.load(open("Resources/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          tag="v${version}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git rev-parse "$tag" >/dev/null 2>&1; then
+            git tag -a "$tag" -m "Codex Token Bar ${tag}"
+            git push origin "$tag"
+          fi
+          cat > release-notes.md <<EOF
+          ## 主要更新
+
+          - 新增可配置的显示时区：默认持续跟随 macOS 或 Windows 系统时区，也可以手动选择固定时区。
+          - 本地时间与太平洋时间换算、Tibo 消息时间会统一使用所选显示时区。
+          - Tibo 窗口增加更直接的 X 登录入口。
+          - Windows 同时提供推荐的 Setup 安装版和明确标注的 Portable 便携版。
+
+          ## 下载
+
+          - **macOS 13+（Apple Silicon）**：下载 \`Codex-Token-Bar-${version}.dmg\`，打开后拖入“应用程序”。
+          - **Windows 10/11 x64 安装版（推荐）**：下载 \`CodexTokenBar-Windows-x64-Setup.exe\`。
+          - **Windows 10/11 x64 便携版**：下载 \`CodexTokenBar-Windows-x64-Portable.exe\`；它包含完整运行环境，因此文件更大。
+
+          SHA-256 校验值见随 Release 上传的两个 \`SHA256SUMS\` 文件。
+          EOF
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "Codex Token Bar ${tag}" --notes-file release-notes.md
+          else
+            gh release create "$tag" --verify-tag --title "Codex Token Bar ${tag}" --notes-file release-notes.md
+          fi
+          gh release upload "$tag" release-assets/* --clobber
