@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else { return }
 
         hoveredTiboURL = url
-        let timer = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: 2, repeats: false) { [weak self] _ in
             guard let self, self.hoveredTiboURL == url else { return }
             self.hoveredTiboURL = nil
             self.tiboHoverReadTimer = nil

@@ -10,9 +10,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private const string Version = "1.3.2";
     private readonly SynchronizationContext _uiContext;
     private readonly NotifyIcon _notifyIcon;
+    private readonly NotifyIcon _unreadNotifyIcon;
     private readonly ContextMenuStrip _menu = new()
     {
         ShowImageMargin = false,
+        ShowItemToolTips = true,
         DropShadowEnabled = false,
         AutoClose = true
     };
@@ -34,10 +36,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 60_000 };
     private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 24 * 60 * 60 * 1_000 };
     private readonly System.Windows.Forms.Timer _tiboTimer = new() { Interval = 30 * 60 * 1_000 };
+    private readonly System.Windows.Forms.Timer _tiboHoverReadTimer = new() { Interval = 2_000 };
     private UsageSnapshot? _snapshot;
     private TokenUsageSnapshot? _tokenUsageSnapshot;
     private string? _lastError;
     private Icon? _generatedIcon;
+    private Icon? _generatedUnreadIcon;
     private bool _isCheckingForUpdates;
     private XLoginForm? _xLoginForm;
     private TiboFeedForm? _tiboFeedForm;
@@ -45,6 +49,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private string _tiboStatus = "本机 RSSHub 等待首次更新";
     private bool _isRefreshingTibo;
     private bool _tiboRepliesAvailable;
+    private DateTimeOffset? _lastTiboUpdate;
+    private string? _hoveredTiboUrl;
 
     public TrayApplicationContext(SynchronizationContext uiContext)
     {
@@ -57,12 +63,27 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Text = "Codex Token Bar · 正在读取额度…",
             Visible = true
         };
+        _unreadNotifyIcon = new NotifyIcon
+        {
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application,
+            Text = "Tibo 动态",
+            Visible = false
+        };
         _notifyIcon.MouseClick += (_, eventArgs) =>
         {
             if (eventArgs.Button == MouseButtons.Left) ShowMenu();
             if (eventArgs.Button == MouseButtons.Right) ShowXLogin();
         };
-        _menu.Closed += (_, _) => _menuOwner.Hide();
+        _unreadNotifyIcon.MouseClick += (_, eventArgs) =>
+        {
+            if (eventArgs.Button == MouseButtons.Left) ShowTiboFeed();
+            if (eventArgs.Button == MouseButtons.Right) ShowMenu();
+        };
+        _menu.Closed += (_, _) =>
+        {
+            CancelTiboHoverRead();
+            _menuOwner.Hide();
+        };
         _menuOwner.Deactivate += (_, _) =>
         {
             if (_menu.Visible) _menu.Close(ToolStripDropDownCloseReason.AppClicked);
@@ -87,6 +108,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _refreshTimer.Tick += (_, _) => _client.Refresh();
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync(userInitiated: false);
         _tiboTimer.Tick += async (_, _) => await RefreshTiboAsync();
+        _tiboHoverReadTimer.Tick += (_, _) => MarkHoveredTiboPostRead();
         _refreshTimer.Start();
         _tiboTimer.Start();
         ConfigureAutomaticUpdates(checkSoon: true);
@@ -105,6 +127,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
+        if (_xAuthToken is not null &&
+            (_lastTiboUpdate is null || DateTimeOffset.Now - _lastTiboUpdate > TimeSpan.FromMinutes(10)))
+            _ = RefreshTiboAsync();
         RebuildMenu();
         var cursor = Cursor.Position;
         var workingArea = Screen.FromPoint(cursor).WorkingArea;
@@ -129,15 +154,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void UpdateTrayIcon()
     {
         var remaining = _snapshot?.HeadlineBucket?.HeadlineWindow?.RemainingPercent;
-        var label = remaining is { } value ? $"{Math.Round(value):0}" : "--";
-        var nextIcon = CreatePercentageIcon(label);
+        var unread = _tiboPostStore.UnreadCount;
+        var percentageLabel = remaining is { } value ? $"{Math.Round(value):0}" : "--";
+        var nextIcon = CreateTextIcon(percentageLabel, Color.White);
         _notifyIcon.Icon = nextIcon;
         _generatedIcon?.Dispose();
         _generatedIcon = nextIcon;
-        var tooltip = remaining is { } percent
+        var usageTooltip = remaining is { } percent
             ? $"Codex 剩余额度 {Math.Round(percent):0}% · 左键查看详情"
             : _lastError ?? "正在读取 Codex 剩余额度…";
+        var tooltip = unread > 0 ? $"{usageTooltip} · X 有 {unread} 条未读" : usageTooltip;
         _notifyIcon.Text = tooltip.Length <= 63 ? tooltip : tooltip[..60] + "…";
+        if (unread > 0)
+        {
+            var nextUnreadIcon = CreateTextIcon($"X{Math.Min(unread, 99)}", Color.FromArgb(255, 190, 70));
+            _unreadNotifyIcon.Icon = nextUnreadIcon;
+            _generatedUnreadIcon?.Dispose();
+            _generatedUnreadIcon = nextUnreadIcon;
+            _unreadNotifyIcon.Text = $"Tibo 动态 · {unread} 条未读 · 点击查看";
+            _unreadNotifyIcon.Visible = true;
+        }
+        else
+        {
+            _unreadNotifyIcon.Visible = false;
+        }
     }
 
     private void RebuildMenu()
@@ -167,6 +207,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _lastError = null;
             _client.Refresh(includeTokenUsage: true);
+            _ = RefreshTiboAsync(userInitiated: true);
         });
         AddAction(_menu.Items, "打开 Codex", (_, _) => OpenUrl("codex://"));
 
@@ -276,11 +317,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void AddTiboTools()
     {
         _menu.Items.Add(new ToolStripSeparator());
-        AddLabel(_menu.Items, "Tibo 动态", bold: true);
+        var unread = _tiboPostStore.UnreadCount;
+        AddLabel(_menu.Items, unread > 0 ? $"Tibo 动态 · {unread} 条未读" : "Tibo 动态", bold: true);
         foreach (var post in _tiboPostStore.Posts.Take(4))
         {
-            var item = AddAction(_menu.Items, Indent(TiboPostMenuTitle(post)), (_, _) => OpenUrl(post.Url));
-            item.ToolTipText = post.Text;
+            var marker = _tiboPostStore.IsUnread(post.Url) ? "● " : string.Empty;
+            var item = AddAction(_menu.Items, Indent(marker + TiboPostMenuTitle(post)), (_, _) => OpenTiboPost(post));
+            item.ToolTipText = $"{post.Text}\r\n\r\n停留 2 秒后标为已读";
+            item.MouseEnter += (_, _) => BeginTiboHoverRead(post.Url);
+            item.MouseLeave += (_, _) => EndTiboHoverRead(post.Url);
         }
         if (_tiboPostStore.Posts.Count == 0)
             AddLabel(_menu.Items, Indent(_xAuthToken is null ? "登录 X 后，将通过本机 RSSHub 显示最近发言" : "点击刷新读取最近发言"));
@@ -329,6 +374,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var feed = await _tiboClient.FetchAsync(_xAuthToken, progress);
             _tiboRepliesAvailable = feed.RepliesAvailable;
             _tiboPostStore.Merge(feed.Posts);
+            _lastTiboUpdate = DateTimeOffset.Now;
+            if (_tiboFeedForm?.Visible == true) _tiboPostStore.MarkAllRead();
             SetTiboStatus($"RSSHub 已更新 {feed.Posts.Count} 条 · " +
                 (feed.RepliesAvailable ? "包含回复" : "回复源暂不可用"));
         }
@@ -341,6 +388,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         finally
         {
             _isRefreshingTibo = false;
+            UpdateTrayIcon();
             UpdateTiboFeedForm();
             if (_menu.Visible) RebuildMenu();
         }
@@ -355,6 +403,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void ShowTiboFeed()
     {
+        if (_tiboPostStore.MarkAllRead()) UpdateTrayIcon();
         if (_tiboFeedForm is null || _tiboFeedForm.IsDisposed)
         {
             _tiboFeedForm = new TiboFeedForm();
@@ -366,6 +415,45 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _tiboFeedForm.Activate();
         _tiboFeedForm.BringToFront();
         if (_xAuthToken is not null && _tiboPostStore.Posts.Count == 0) _ = RefreshTiboAsync();
+    }
+
+    private void OpenTiboPost(TiboPost post)
+    {
+        if (_tiboPostStore.MarkRead(post.Url))
+        {
+            UpdateTrayIcon();
+            if (_menu.Visible) RebuildMenu();
+        }
+        OpenUrl(post.Url);
+    }
+
+    private void BeginTiboHoverRead(string url)
+    {
+        _tiboHoverReadTimer.Stop();
+        _hoveredTiboUrl = url;
+        if (_tiboPostStore.IsUnread(url)) _tiboHoverReadTimer.Start();
+    }
+
+    private void EndTiboHoverRead(string url)
+    {
+        if (!string.Equals(_hoveredTiboUrl, url, StringComparison.OrdinalIgnoreCase)) return;
+        CancelTiboHoverRead();
+    }
+
+    private void CancelTiboHoverRead()
+    {
+        _tiboHoverReadTimer.Stop();
+        _hoveredTiboUrl = null;
+    }
+
+    private void MarkHoveredTiboPostRead()
+    {
+        _tiboHoverReadTimer.Stop();
+        var url = _hoveredTiboUrl;
+        _hoveredTiboUrl = null;
+        if (url is null || !_tiboPostStore.MarkRead(url)) return;
+        UpdateTrayIcon();
+        if (_menu.Visible) RebuildMenu();
     }
 
     private void UpdateTiboFeedForm()
@@ -516,7 +604,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         $"Codex Token Bar {Version}\n\n在系统托盘显示 Codex 账号的实际剩余额度。\n数据通过本机 Codex App Server 读取，不需要 API Key。",
         "关于 Codex Token Bar", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-    private static Icon CreatePercentageIcon(string label)
+    private static Icon CreateTextIcon(string label, Color color)
     {
         using var bitmap = new Bitmap(32, 32);
         using var graphics = Graphics.FromImage(bitmap);
@@ -524,11 +612,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         using var background = new SolidBrush(Color.FromArgb(31, 35, 40));
         graphics.FillRectangle(background, 0, 0, 32, 32);
+        var textFlags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+            TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
         var size = label.Length >= 3 ? 17f : 22f;
         using var font = new Font("Segoe UI", size, FontStyle.Bold, GraphicsUnit.Pixel);
-        TextRenderer.DrawText(graphics, label, font, new Rectangle(0, 0, 32, 32), Color.White, Color.Transparent,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-            TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(graphics, label, font, new Rectangle(0, 0, 32, 32),
+            color, Color.Transparent, textFlags);
         var handle = bitmap.GetHicon();
         try { return (Icon)Icon.FromHandle(handle).Clone(); }
         finally { DestroyIcon(handle); }
@@ -545,10 +634,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _refreshTimer.Stop();
         _updateTimer.Stop();
         _tiboTimer.Stop();
+        _tiboHoverReadTimer.Stop();
         _refreshTimer.Dispose();
         _updateTimer.Dispose();
         _tiboTimer.Dispose();
+        _tiboHoverReadTimer.Dispose();
         _notifyIcon.Visible = false;
+        _unreadNotifyIcon.Visible = false;
         _client.Dispose();
         _tiboClient.Dispose();
         _menu.Dispose();
@@ -557,7 +649,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _xLoginForm?.Dispose();
         _tiboFeedForm?.Dispose();
         _notifyIcon.Dispose();
+        _unreadNotifyIcon.Dispose();
         _generatedIcon?.Dispose();
+        _generatedUnreadIcon?.Dispose();
         base.ExitThreadCore();
     }
 }

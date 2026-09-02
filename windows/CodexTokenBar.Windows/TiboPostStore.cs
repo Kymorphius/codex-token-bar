@@ -12,13 +12,26 @@ internal sealed record TiboPost(
 internal sealed class TiboPostStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private readonly string _path = Path.Combine(
+    private readonly string _directory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Codex Token Bar", "tibo-posts.json");
+        "Codex Token Bar");
+    private readonly string _path;
+    private readonly string _readStatePath;
+    private HashSet<string> _readUrls = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<TiboPost> Posts { get; private set; } = [];
 
-    public TiboPostStore() => Load();
+    public TiboPostStore()
+    {
+        _path = Path.Combine(_directory, "tibo-posts.json");
+        _readStatePath = Path.Combine(_directory, "tibo-read-state.json");
+        Load();
+        LoadReadState();
+    }
+
+    public int UnreadCount => Posts.Count(post => !_readUrls.Contains(post.Url));
+
+    public bool IsUnread(string url) => !_readUrls.Contains(url);
 
     public void Merge(IEnumerable<TiboPost> incoming)
     {
@@ -36,6 +49,21 @@ internal sealed class TiboPostStore
         Save();
     }
 
+    public bool MarkRead(string url)
+    {
+        if (!_readUrls.Add(url)) return false;
+        SaveReadState();
+        return true;
+    }
+
+    public bool MarkAllRead()
+    {
+        var changed = false;
+        foreach (var post in Posts) changed |= _readUrls.Add(post.Url);
+        if (changed) SaveReadState();
+        return changed;
+    }
+
     private void Load()
     {
         try
@@ -50,8 +78,40 @@ internal sealed class TiboPostStore
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            Directory.CreateDirectory(_directory);
             File.WriteAllText(_path, JsonSerializer.Serialize(Posts, JsonOptions));
+        }
+        catch { }
+    }
+
+    private void LoadReadState()
+    {
+        try
+        {
+            if (File.Exists(_readStatePath))
+            {
+                var urls = JsonSerializer.Deserialize<string[]>(File.ReadAllText(_readStatePath)) ?? [];
+                _readUrls = new HashSet<string>(urls, StringComparer.OrdinalIgnoreCase);
+                return;
+            }
+
+            // On the first upgrade, treat the existing cache as the read baseline.
+            // A fresh installation has no cached posts, so its first fetch is unread.
+            _readUrls = new HashSet<string>(Posts.Select(post => post.Url), StringComparer.OrdinalIgnoreCase);
+            SaveReadState();
+        }
+        catch
+        {
+            _readUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private void SaveReadState()
+    {
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(_readStatePath, JsonSerializer.Serialize(_readUrls.Order(), JsonOptions));
         }
         catch { }
     }

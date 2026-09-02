@@ -10,14 +10,22 @@ let input = '';
 for await (const chunk of process.stdin) input += chunk;
 
 try {
-  const credentials = JSON.parse(input);
+  const payload = input.trim().replace(/^\uFEFF/, '');
+  let authToken;
+  if (payload.startsWith('TOKEN_BASE64:')) {
+    authToken = Buffer.from(payload.slice('TOKEN_BASE64:'.length), 'base64').toString('utf8');
+  } else {
+    // Keep accepting the old JSON format for build tools and existing runtimes.
+    authToken = JSON.parse(payload).authToken;
+  }
+  if (!authToken) throw new Error('X 登录凭据为空');
   process.env.LOGGER_LEVEL = 'error';
   process.env.NO_LOGFILES = 'true';
   process.env.CACHE_TYPE = 'memory';
   process.env.REQUEST_TIMEOUT = '15000';
   const rsshub = await import(pathToFileURL(modulePath).href);
   await rsshub.init({
-    TWITTER_AUTH_TOKEN: credentials.authToken,
+    TWITTER_AUTH_TOKEN: authToken,
     LOGGER_LEVEL: 'error',
     NO_LOGFILES: 'true',
     CACHE_TYPE: 'memory',

@@ -49,7 +49,10 @@ internal sealed partial class TiboRSSHubClient : IDisposable
         using var process = new Process { StartInfo = startInfo };
         _process = process;
         process.Start();
-        await process.StandardInput.WriteAsync(JsonSerializer.Serialize(new { authToken }));
+        // Use a single base64-framed value instead of JSON. This avoids stdin
+        // encoding/escaping differences on Windows corrupting the credential payload.
+        var encodedToken = Convert.ToBase64String(Encoding.UTF8.GetBytes(authToken));
+        await process.StandardInput.WriteAsync("TOKEN_BASE64:" + encodedToken);
         process.StandardInput.Close();
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
